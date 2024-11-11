@@ -3,7 +3,7 @@ name: Mac Pipeline
 on:
   push:
     branches:
-      - feature/03-build-and-clean-up
+      - feature/03-parallel-and-cleanup
 
 env:
   PLUGIN_NAME: ADC24RSR
