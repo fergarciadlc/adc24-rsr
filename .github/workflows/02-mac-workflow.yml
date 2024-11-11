@@ -1,0 +1,82 @@
+name: Mac Pipeline
+
+on:
+  push:
+    branches:
+      - feature/02-dependencies
+
+env:
+  PLUGIN_NAME: ADC24RSR
+  PLUGINS_FOLDER: /Users/runner/Library/Audio/Plug-Ins
+
+jobs:
+  unit-test:
+    name: Unit Testing on macos-14
+    runs-on: macos-14
+    if: contains(github.event.head_commit.message, '/mac-release')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Unit Tests
+        run: |
+          if ( ${{ contains(toJson(github.event.commits), '/no-ut') }} ); then
+            echo "/no-ut in commit message, skipping unit tests"
+          else
+            echo "Running unit tests"
+          fi
+
+  build:
+    name: Build on macos-14
+    needs: [unit-test]
+    runs-on: macos-14
+    if: contains(github.event.head_commit.message, '/no-build') == false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get latest CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Configure CMake
+        run: cmake -Bbuild
+
+      - name: Build Plug-In
+        run: sudo cmake --build build --config Release
+
+      - name: Move plugins to builds folder
+        run: |
+          sudo mkdir -p "${{ env.PLUGINS_FOLDER }}/builds/"
+          sudo mv "${{ env.PLUGINS_FOLDER }}/VST3/${{ env.PLUGIN_NAME }}.vst3" "${{ env.PLUGINS_FOLDER }}/builds/"
+          sudo mv "${{ env.PLUGINS_FOLDER }}/Components/${{ env.PLUGIN_NAME }}.component" "${{ env.PLUGINS_FOLDER }}/builds/"
+          ls "${{ env.PLUGINS_FOLDER }}/builds/"
+
+      - name: Upload Builds to Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-builds-artifact"
+          path: ${{ env.PLUGINS_FOLDER }}/builds
+
+  create-dmg:
+    name: Create DMG Package
+    needs: [build]
+    runs-on: macos-14
+    if: contains(github.event.head_commit.message, '/no-installer') == false
+    steps:
+      - name: Download Plugins Folder Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-builds-artifact"
+          path: ./plugins-folder
+
+      - name: Create DMG File
+        run: |
+          hdiutil create -volname "${{ env.PLUGIN_NAME }}" -srcfolder "./plugins-folder" -ov -format UDZO "${{ env.PLUGIN_NAME }}.dmg" -verbose
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-dmg-artifact"
+          path: "${{ env.PLUGIN_NAME }}.dmg"

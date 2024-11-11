@@ -1,0 +1,127 @@
+name: Mac Pipeline
+
+on:
+  push:
+    branches:
+      - 04-cache
+
+env:
+  PLUGIN_NAME: ADC24RSR
+  PLUGINS_FOLDER: /Users/runner/Library/Audio/Plug-Ins
+
+jobs:
+  unit-test:
+    name: Unit Testing on macos-14
+    runs-on: macos-14
+    if: |
+      contains(github.event.head_commit.message, '/mac-release') &&
+      !contains(github.event.head_commit.message, '/no-ci')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Unit Tests
+        id: tests
+        run: |
+          if [[ "${{ contains(toJson(github.event.commits), '/no-ut') }}" == "true" ]]; then
+            echo "SKIPPED=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Unit tests skipped due to /no-ut flag"
+          else
+            echo "Running unit tests"
+            # Add your test command here
+            # Example: ctest --test-dir build -C Release or your test script: sh run_tests.sh
+          fi
+
+  build:
+    name: Build on macos-14
+    needs: [unit-test]
+    runs-on: macos-14
+    if: |
+      !contains(github.event.head_commit.message, '/no-build')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get latest CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build Plug-In
+        run: |
+          sudo cmake --build build --config Release --parallel 3
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+      - name: Move plugins to builds folder
+        run: |
+          sudo mkdir -p "${{ env.PLUGINS_FOLDER }}/builds/"
+          sudo mv "${{ env.PLUGINS_FOLDER }}/VST3/${{ env.PLUGIN_NAME }}.vst3" "${{ env.PLUGINS_FOLDER }}/builds/"
+          sudo mv "${{ env.PLUGINS_FOLDER }}/Components/${{ env.PLUGIN_NAME }}.component" "${{ env.PLUGINS_FOLDER }}/builds/"
+          ls "${{ env.PLUGINS_FOLDER }}/builds/"
+
+      - name: Upload Builds to Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-builds-artifact"
+          path: ${{ env.PLUGINS_FOLDER }}/builds
+          retention-days: 5
+
+  create-dmg:
+    name: Create DMG Package
+    needs: [build]
+    runs-on: macos-14
+    if: |
+      !contains(github.event.head_commit.message, '/no-installer')
+    steps:
+      - name: Download Plugins Folder Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-builds-artifact"
+          path: ./plugins-folder
+
+      - name: Create DMG File
+        run: |
+          VERSION=$(date +%Y%m%d_%H%M%S)
+          DMG_NAME="${{ env.PLUGIN_NAME }}_${VERSION}.dmg"
+          hdiutil create \
+            -volname "${{ env.PLUGIN_NAME }}" \
+            -srcfolder "./plugins-folder" \
+            -ov -format UDZO \
+            "${DMG_NAME}" \
+            -verbose
+          echo "DMG_NAME=${DMG_NAME}" >> $GITHUB_ENV
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-dmg-artifact"
+          path: ${{ env.DMG_NAME }}
+          retention-days: 5
+
+  cleanup-artifacts:
+    name: Cleanup Artifacts
+    if: always()  # Run cleanup even if previous jobs fail
+    needs: [build, create-dmg]
+    runs-on: macos-14
+    steps:
+      - name: Delete Build Artifacts
+        if: |
+          !contains(github.event.head_commit.message, '/no-cleanup')
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: |
+            ${{ env.PLUGIN_NAME }}-builds-artifact
+            ${{ env.PLUGIN_NAME }}-dmg-artifact

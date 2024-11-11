@@ -1,0 +1,40 @@
+name: Mac Pipeline
+
+on:
+  push:
+    branches:
+      - feature/01-basic-gha-workflow  # Triggers the workflow on pushes on this branch
+
+env:
+  PLUGIN_NAME: ADC24RSR
+  PLUGINS_FOLDER: /Users/runner/Library/Audio/Plug-Ins
+
+jobs:
+  build:
+    name: Build on macos-14
+    runs-on: macos-14
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # Checkout submodules if they are needed
+
+      # Ensure the latest version of CMake is installed
+      - name: Get latest CMake
+        uses: lukka/get-cmake@latest
+
+      # Configure the project using CMake
+      - name: Configure CMake
+        run: cmake -Bbuild
+
+      # Build the plugin in Release mode
+      - name: Build Plug-In
+        run: sudo cmake --build build --config Release
+
+      # Upload the built plugin in github actions artifact
+      - name: Upload Builds to Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ env.PLUGIN_NAME }}-builds-artifact"
+          path: ${{ env.PLUGINS_FOLDER }}
+
