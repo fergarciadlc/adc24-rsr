@@ -125,4 +125,3 @@ jobs:
           name: |
             ${{ env.PLUGIN_NAME }}-builds-artifact
             ${{ env.PLUGIN_NAME }}-dmg-artifact
-
