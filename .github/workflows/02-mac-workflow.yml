@@ -80,3 +80,4 @@ jobs:
         with:
           name: "${{ env.PLUGIN_NAME }}-dmg-artifact"
           path: "${{ env.PLUGIN_NAME }}.dmg"
+
